@@ -31,6 +31,20 @@ Add files to RAM:
 add /index.html ./webroot/index.html
 Start serving:
 
+How to Run
+JakeServer is a Linux‑based static server and must be run through the Linux terminal.
+
+Extract the ZIP
+
+Open a terminal in the extracted folder
+
+Make the server executable:
+
+chmod +x jakeserver
+Run it:
+
+./jakeserver
+
 start
 Performance
 Benchmark example (FX‑series CPU):
