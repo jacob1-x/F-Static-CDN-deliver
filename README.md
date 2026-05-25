@@ -2,6 +2,11 @@ F‑STATIC — High‑Performance Static File Server
 F‑STATIC is a lightweight, zero‑allocation static file server designed for extreme throughput and low latency. Files are preloaded into RAM and served through a single epoll‑driven event loop, enabling exceptional performance even on modest hardware.
 
 
+License
+JakeServer is released under the MIT License.
+This allows free use, modification, distribution, and commercial use of the software.
+See the "LICENSE" file for full details.
+
 
 Features
 RAM‑preloaded files for instant response times
@@ -30,6 +35,8 @@ Add files to RAM:
 
 add /index.html ./webroot/index.html
 Start serving:
+
+
 
 How to Run
 JakeServer is a Linux‑based static server and must be run through the Linux terminal.
