@@ -2,59 +2,86 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>F‑STATIC — The Fastest Static File Server</title>
+<title>F‑STATIC — Faster Than NGINX</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <style>
     body {
         margin: 0;
-        padding: 0;
-        background: radial-gradient(circle at top, #0a0a0a, #000);
+        background: #000;
+        color: #eee;
         font-family: Arial, sans-serif;
-        color: #e8e8e8;
-        text-align: center;
+        overflow-x: hidden;
     }
 
-    header {
-        padding: 80px 20px 40px;
+    /* NAVBAR */
+    .navbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px 40px;
+        background: rgba(255,255,255,0.05);
+        backdrop-filter: blur(10px);
+        position: sticky;
+        top: 0;
+        z-index: 10;
     }
 
-    h1 {
-        font-size: 64px;
-        margin: 0;
+    .navbar .logo {
+        font-size: 28px;
+        font-weight: bold;
         background: linear-gradient(90deg, #00eaff, #00ffaa);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        font-weight: 900;
-        letter-spacing: 2px;
+    }
+
+    .navbar ul {
+        list-style: none;
+        display: flex;
+        gap: 25px;
+        padding: 0;
+        margin: 0;
+    }
+
+    .navbar a {
+        color: #00eaff;
+        text-decoration: none;
+        font-weight: bold;
+        transition: 0.2s;
+    }
+
+    .navbar a:hover {
+        color: #00ffaa;
+    }
+
+    /* CONTENT */
+    #content {
+        padding: 40px;
+        max-width: 900px;
+        margin: auto;
+        transition: opacity 0.25s ease;
+    }
+
+    h1 {
+        font-size: 50px;
+        background: linear-gradient(90deg, #00eaff, #00ffaa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 10px;
     }
 
     h2 {
-        font-size: 24px;
         font-weight: 300;
-        margin-top: 10px;
-        color: #bfbfbf;
-    }
-
-    .section {
-        max-width: 900px;
-        margin: 60px auto;
-        padding: 20px;
-        line-height: 1.7;
-        font-size: 18px;
-    }
-
-    .highlight {
-        color: #00eaff;
-        font-weight: bold;
+        color: #bbb;
+        margin-top: 0;
     }
 
     .card {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
         border-radius: 12px;
         padding: 25px;
-        margin: 20px auto;
-        max-width: 700px;
+        margin: 20px 0;
         backdrop-filter: blur(6px);
         transition: 0.3s;
     }
@@ -64,67 +91,130 @@
         border-color: #00eaff;
     }
 
-    footer {
-        margin-top: 80px;
-        padding: 20px;
-        font-size: 14px;
-        color: #777;
+    .highlight {
+        color: #00eaff;
+        font-weight: bold;
+    }
+
+    /* GLOW EFFECT */
+    .glow {
+        position: fixed;
+        width: 300px;
+        height: 300px;
+        background: radial-gradient(circle, rgba(0,255,255,0.25), transparent 70%);
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+        filter: blur(40px);
+        z-index: 0;
     }
 </style>
 </head>
+
 <body>
 
-<header>
-    <h1>F‑STATIC</h1>
-    <h2>The Fastest Static File Server Ever Built</h2>
-</header>
+<div class="glow"></div>
 
-<div class="section">
-    <div class="card">
-        <h3>Why We Beat NGINX</h3>
-        <p>NGINX is a <span class="highlight">general‑purpose web server</span> with layers of modules, filters, and abstractions.</p>
-        <p>F‑STATIC is a <span class="highlight">pure static‑file railgun</span> — engineered for one job:</p>
-        <p><strong>Serve files at maximum physical speed.</strong></p>
-    </div>
+<nav class="navbar">
+    <div class="logo">F‑STATIC</div>
+    <ul>
+        <li><a href="#" onclick="loadPage('home')">Home</a></li>
+        <li><a href="#" onclick="loadPage('benchmarks')">Benchmarks</a></li>
+        <li><a href="#" onclick="loadPage('docs')">Docs</a></li>
+        <li><a href="#" onclick="loadPage('download')">Download</a></li>
+        <li><a href="#" onclick="loadPage('about')">About</a></li>
+    </ul>
+</nav>
 
-    <div class="card">
-        <h3>Zero‑Overhead Architecture</h3>
-        <p>Direct <span class="highlight">memory → socket</span> pipeline.  
-        No modules. No filters. No bloat.</p>
-    </div>
+<div id="content"></div>
 
-    <div class="card">
-        <h3>GPU‑Pinned Memory</h3>
-        <p>Files are stored in <span class="highlight">GPU‑pinned host memory</span> for ultra‑fast DMA transfers.</p>
-        <p>NGINX can’t do this.</p>
-    </div>
+<script>
+/* PAGE CONTENTS */
+const pages = {
+    home: `
+        <h1>F‑STATIC</h1>
+        <h2>The Fastest Static File Server Ever Built</h2>
 
-    <div class="card">
-        <h3>SO_REUSEPORT Multi‑Process Scaling</h3>
-        <p>Every CPU core gets its own worker, socket, and OpenCL context.</p>
-        <p>No lock contention. No bottlenecks.</p>
-    </div>
+        <div class="card">
+            <h3>Why We Beat NGINX</h3>
+            <p>NGINX is a <span class="highlight">general‑purpose web server</span> with layers of modules and filters.</p>
+            <p>F‑STATIC is a <span class="highlight">pure static‑file railgun</span> built for one job:</p>
+            <p><strong>Serve files at maximum physical speed.</strong></p>
+        </div>
 
-    <div class="card">
-        <h3>Epoll Edge‑Triggered I/O</h3>
-        <p>The fastest I/O model Linux offers — used to its full potential.</p>
-    </div>
+        <div class="card">
+            <h3>Zero‑Overhead Architecture</h3>
+            <p>Direct <span class="highlight">memory → socket</span> pipeline. No bloat.</p>
+        </div>
 
-    <div class="card">
-        <h3>Optional VRAM Promotion</h3>
-        <p>Hot files can be mirrored into <span class="highlight">actual GPU VRAM</span> for near‑zero latency access.</p>
-    </div>
+        <div class="card">
+            <h3>GPU‑Pinned Memory</h3>
+            <p>Ultra‑fast DMA transfers. NGINX can’t do this.</p>
+        </div>
 
-    <div class="card">
-        <h3>The Result?</h3>
-        <p><strong>F‑STATIC pushes 100k–200k requests/sec on mid‑range hardware.</strong></p>
-        <p>NGINX simply can’t match that for pure static files.</p>
-    </div>
-</div>
+        <div class="card">
+            <h3>SO_REUSEPORT Scaling</h3>
+            <p>Every CPU core gets its own worker. No lock contention.</p>
+        </div>
 
-<footer>
-    F‑STATIC CDN Deliver • Open Source • Built for Speed
-</footer>
+        <div class="card">
+            <h3>The Result?</h3>
+            <p><strong>100k–200k requests/sec</strong> on mid‑range hardware.</p>
+        </div>
+    `,
+
+    benchmarks: `
+        <h1>Benchmarks</h1>
+        <div class="card">
+            <p>F‑STATIC reaches <strong>100k–200k RPS</strong> on mid‑range hardware.</p>
+            <p>NGINX cannot match this for pure static files.</p>
+        </div>
+    `,
+
+    docs: `
+        <h1>Documentation</h1>
+        <div class="card"><p>How to run F‑STATIC</p></div>
+        <div class="card"><p>GPU pinned memory</p></div>
+        <div class="card"><p>Workers & SO_REUSEPORT</p></div>
+        <div class="card"><p>VRAM promotion</p></div>
+    `,
+
+    download: `
+        <h1>Download</h1>
+        <div class="card"><p>Linux x64 — Coming soon</p></div>
+        <div class="card"><p>Windows — Coming soon</p></div>
+        <div class="card"><p>Source code available on GitHub</p></div>
+    `,
+
+    about: `
+        <h1>About F‑STATIC</h1>
+        <div class="card">
+            <p>A static file server engineered for maximum speed.</p>
+            <p>Built with GPU‑pinned memory, epoll, and multi‑process scaling.</p>
+        </div>
+    `
+};
+
+/* PAGE LOADER */
+function loadPage(name) {
+    const container = document.getElementById("content");
+    container.style.opacity = 0;
+
+    setTimeout(() => {
+        container.innerHTML = pages[name];
+        container.style.opacity = 1;
+    }, 200);
+}
+
+/* DEFAULT PAGE */
+loadPage('home');
+
+/* GLOW EFFECT */
+document.addEventListener("mousemove", e => {
+    const glow = document.querySelector(".glow");
+    glow.style.left = e.pageX + "px";
+    glow.style.top = e.pageY + "px";
+});
+</script>
 
 </body>
 </html>
