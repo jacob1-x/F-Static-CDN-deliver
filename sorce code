@@ -1,0 +1,571 @@
+#define _GNU_SOURCE
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/uio.h>
+#include <unistd.h>
+#include <dirent.h>
+
+#define CL_TARGET_OPENCL_VERSION 120
+#include <CL/cl.h>
+
+#define PORT 7783
+#define MAX_EVENTS 4096
+#define MAX_FILES 1024
+#define MAX_PATH 512
+#define RECV_BUF 4096
+
+typedef struct {
+    char   url_path[MAX_PATH];   // e.g. "/index.html"
+    char   fs_path[MAX_PATH];    // e.g. "./webroot/index.html"
+    size_t len;
+
+    cl_mem cl_buf;               // OpenCL buffer (pinned host memory)
+    void  *data;                 // mapped host pointer (pinned, used for sendmsg)
+} FileEntry;
+
+static FileEntry files[MAX_FILES];
+static int file_count = 0;
+
+static int listen_fd = -1;
+static int epfd = -1;
+static int server_running = 0;
+static int quit_requested = 0;
+
+/* OpenCL globals */
+static cl_platform_id    cl_platform;
+static cl_device_id      cl_device;
+static cl_context        cl_ctx;
+static cl_command_queue  cl_q;
+static int               cl_ready = 0;
+
+static void die(const char *msg) {
+    perror(msg);
+    exit(1);
+}
+
+static int set_nonblock(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1) return -1;
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) return -1;
+    return 0;
+}
+
+/* ---------- MIME type helper ---------- */
+
+static const char* guess_mime(const char *path) {
+    const char *ext = strrchr(path, '.');
+    if (!ext) return "text/plain";
+
+    if (!strcmp(ext, ".html")) return "text/html";
+    if (!strcmp(ext, ".htm"))  return "text/html";
+    if (!strcmp(ext, ".css"))  return "text/css";
+    if (!strcmp(ext, ".js"))   return "application/javascript";
+    if (!strcmp(ext, ".png"))  return "image/png";
+    if (!strcmp(ext, ".jpg"))  return "image/jpeg";
+    if (!strcmp(ext, ".jpeg")) return "image/jpeg";
+    if (!strcmp(ext, ".ico"))  return "image/x-icon";
+    if (!strcmp(ext, ".svg"))  return "image/svg+xml";
+
+    return "application/octet-stream";
+}
+
+/* ---------- OpenCL setup / teardown ---------- */
+
+static void cl_init_or_die(void) {
+    cl_int err;
+
+    err = clGetPlatformIDs(1, &cl_platform, NULL);
+    if (err != CL_SUCCESS) {
+        fprintf(stderr, "[CL] clGetPlatformIDs failed: %d\n", err);
+        die("clGetPlatformIDs");
+    }
+
+    err = clGetDeviceIDs(cl_platform, CL_DEVICE_TYPE_GPU, 1, &cl_device, NULL);
+    if (err != CL_SUCCESS) {
+        fprintf(stderr, "[CL] clGetDeviceIDs failed: %d\n", err);
+        die("clGetDeviceIDs");
+    }
+
+    cl_ctx = clCreateContext(NULL, 1, &cl_device, NULL, NULL, &err);
+    if (!cl_ctx || err != CL_SUCCESS) {
+        fprintf(stderr, "[CL] clCreateContext failed: %d\n", err);
+        die("clCreateContext");
+    }
+
+    cl_q = clCreateCommandQueue(cl_ctx, cl_device, 0, &err);
+    if (!cl_q || err != CL_SUCCESS) {
+        fprintf(stderr, "[CL] clCreateCommandQueue failed: %d\n", err);
+        die("clCreateCommandQueue");
+    }
+
+    cl_ready = 1;
+    printf("[CL] OpenCL context ready.\n");
+}
+
+static void cl_shutdown(void) {
+    if (!cl_ready) return;
+    if (cl_q) clReleaseCommandQueue(cl_q);
+    if (cl_ctx) clReleaseContext(cl_ctx);
+    cl_q = NULL;
+    cl_ctx = NULL;
+    cl_ready = 0;
+}
+
+/* ---------- File management (pinned host memory) ---------- */
+
+static int load_file_into_vram(const char *url_path, const char *fs_path) {
+    if (!cl_ready) {
+        fprintf(stderr, "[CL] Not initialized.\n");
+        return -1;
+    }
+    if (file_count >= MAX_FILES) {
+        fprintf(stderr, "File table full\n");
+        return -1;
+    }
+
+    int fd = open(fs_path, O_RDONLY);
+    if (fd < 0) {
+        perror("open");
+        return -1;
+    }
+
+    struct stat st;
+    if (fstat(fd, &st) < 0) {
+        perror("fstat");
+        close(fd);
+        return -1;
+    }
+
+    if (!S_ISREG(st.st_mode)) {
+        fprintf(stderr, "Not a regular file: %s\n", fs_path);
+        close(fd);
+        return -1;
+    }
+
+    size_t len = st.st_size;
+    if (len == 0) {
+        fprintf(stderr, "Skipping empty file: %s\n", fs_path);
+        close(fd);
+        return -1;
+    }
+
+    cl_int err;
+    cl_mem buf = clCreateBuffer(cl_ctx,
+                                CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
+                                len,
+                                NULL,
+                                &err);
+    if (!buf || err != CL_SUCCESS) {
+        fprintf(stderr, "[CL] clCreateBuffer (ALLOC_HOST_PTR) failed: %d\n", err);
+        close(fd);
+        return -1;
+    }
+
+    void *ptr = clEnqueueMapBuffer(cl_q,
+                                   buf,
+                                   CL_TRUE,
+                                   CL_MAP_WRITE,
+                                   0,
+                                   len,
+                                   0, NULL, NULL,
+                                   &err);
+    if (!ptr || err != CL_SUCCESS) {
+        fprintf(stderr, "[CL] clEnqueueMapBuffer (load) failed: %d\n", err);
+        clReleaseMemObject(buf);
+        close(fd);
+        return -1;
+    }
+
+    size_t off = 0;
+    while (off < len) {
+        ssize_t r = read(fd, (char *)ptr + off, len - off);
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            perror("read");
+            clEnqueueUnmapMemObject(cl_q, buf, ptr, 0, NULL, NULL);
+            clFinish(cl_q);
+            clReleaseMemObject(buf);
+            close(fd);
+            return -1;
+        }
+        if (r == 0) break;
+        off += (size_t)r;
+    }
+    close(fd);
+
+    clFinish(cl_q);
+
+    FileEntry *fe = &files[file_count++];
+    snprintf(fe->url_path, sizeof(fe->url_path), "%s", url_path);
+    snprintf(fe->fs_path, sizeof(fe->fs_path), "%s", fs_path);
+    fe->len    = off;
+    fe->cl_buf = buf;
+    fe->data   = ptr;
+
+    printf("[UI] Added mapping (pinned): %s -> %s (%zu bytes)\n",
+           fe->url_path, fe->fs_path, fe->len);
+
+    return 0;
+}
+
+static FileEntry *find_file_by_url(const char *url) {
+    for (int i = 0; i < file_count; i++) {
+        if (strcmp(files[i].url_path, url) == 0) {
+            return &files[i];
+        }
+    }
+    return NULL;
+}
+
+static void free_all_files(void) {
+    for (int i = 0; i < file_count; i++) {
+        if (files[i].cl_buf && files[i].data) {
+            clEnqueueUnmapMemObject(cl_q, files[i].cl_buf, files[i].data, 0, NULL, NULL);
+            clFinish(cl_q);
+        }
+        if (files[i].cl_buf) {
+            clReleaseMemObject(files[i].cl_buf);
+            files[i].cl_buf = NULL;
+        }
+        files[i].data = NULL;
+        files[i].len = 0;
+    }
+    file_count = 0;
+}
+
+/* Load all regular files in a directory as /filename */
+static void load_webroot(const char *root) {
+    DIR *d = opendir(root);
+    if (!d) {
+        perror("opendir");
+        return;
+    }
+
+    struct dirent *ent;
+    while ((ent = readdir(d))) {
+        if (ent->d_type == DT_REG) {
+            char fs_path[1024];
+            snprintf(fs_path, sizeof(fs_path), "%s/%s", root, ent->d_name);
+
+            char url_path[1024];
+            snprintf(url_path, sizeof(url_path), "/%s", ent->d_name);
+
+            load_file_into_vram(url_path, fs_path);
+        }
+    }
+
+    closedir(d);
+}
+
+/* ---------- Networking ---------- */
+
+static int create_listen_socket(void) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) die("socket");
+
+    int opt = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
+        die("setsockopt");
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+        die("bind");
+
+    if (listen(fd, 1024) < 0)
+        die("listen");
+
+    if (set_nonblock(fd) < 0)
+        die("set_nonblock");
+
+    return fd;
+}
+
+static void send_http_response(int client_fd, FileEntry *fe) {
+    char header[512];
+    const char *mime = guess_mime(fe->fs_path);
+
+    int header_len = snprintf(header, sizeof(header),
+                              "HTTP/1.1 200 OK\r\n"
+                              "Content-Length: %zu\r\n"
+                              "Content-Type: %s\r\n"
+                              "Connection: keep-alive\r\n"
+                              "Keep-Alive: timeout=5, max=1000\r\n"
+                              "\r\n",
+                              fe->len, mime);
+
+    struct iovec iov[2];
+    iov[0].iov_base = header;
+    iov[0].iov_len  = (size_t)header_len;
+    iov[1].iov_base = fe->data;   // pinned host memory
+    iov[1].iov_len  = fe->len;
+
+    struct msghdr msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_iov    = iov;
+    msg.msg_iovlen = 2;
+
+    (void)sendmsg(client_fd, &msg, 0);
+    /* keep-alive: do NOT close here; client may send more requests */
+}
+
+static void send_404(int client_fd) {
+    const char *body = "404 Not Found\n";
+    char header[256];
+    int header_len = snprintf(header, sizeof(header),
+                              "HTTP/1.1 404 Not Found\r\n"
+                              "Content-Length: %zu\r\n"
+                              "Content-Type: text/plain\r\n"
+                              "Connection: close\r\n"
+                              "\r\n",
+                              strlen(body));
+
+    send(client_fd, header, (size_t)header_len, 0);
+    send(client_fd, body, strlen(body), 0);
+    close(client_fd);
+}
+
+static void handle_client(int client_fd) {
+    char buf[RECV_BUF];
+    ssize_t r = recv(client_fd, buf, sizeof(buf) - 1, 0);
+    if (r <= 0) {
+        close(client_fd);
+        return;
+    }
+    buf[r] = '\0';
+
+    char method[8], url[256];
+    if (sscanf(buf, "%7s %255s", method, url) != 2) {
+        close(client_fd);
+        return;
+    }
+
+    if (strcmp(method, "GET") != 0) {
+        close(client_fd);
+        return;
+    }
+
+    if (strcmp(url, "/") == 0) {
+        strcpy(url, "/index.html");
+    }
+
+    FileEntry *fe = find_file_by_url(url);
+    if (fe && fe->data) {
+        send_http_response(client_fd, fe);
+        /* keep-alive: socket stays open until client closes */
+    } else {
+        send_404(client_fd);
+    }
+}
+
+static void accept_new_connections(void) {
+    for (;;) {
+        struct sockaddr_in cli;
+        socklen_t clilen = sizeof(cli);
+        int cfd = accept(listen_fd, (struct sockaddr *)&cli, &clilen);
+        if (cfd < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            perror("accept");
+            break;
+        }
+        set_nonblock(cfd);
+
+        struct epoll_event ev;
+        ev.events = EPOLLIN | EPOLLET;
+        ev.data.fd = cfd;
+        if (epoll_ctl(epfd, EPOLL_CTL_ADD, cfd, &ev) < 0) {
+            perror("epoll_ctl add client");
+            close(cfd);
+        }
+    }
+}
+
+static void stop_server(void) {
+    if (!server_running) return;
+    server_running = 0;
+    if (listen_fd >= 0) {
+        close(listen_fd);
+        listen_fd = -1;
+    }
+    if (epfd >= 0) {
+        close(epfd);
+        epfd = -1;
+    }
+    printf("[UI] Server stopped.\n");
+}
+
+static void start_server(void) {
+    if (server_running) {
+        printf("[UI] Server already running.\n");
+        return;
+    }
+
+    listen_fd = create_listen_socket();
+    epfd = epoll_create1(0);
+    if (epfd < 0) die("epoll_create1");
+
+    struct epoll_event ev;
+    ev.events = EPOLLIN | EPOLLET;
+    ev.data.fd = listen_fd;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &ev) < 0)
+        die("epoll_ctl listen_fd");
+
+    set_nonblock(STDIN_FILENO);
+    ev.events = EPOLLIN;
+    ev.data.fd = STDIN_FILENO;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, STDIN_FILENO, &ev) < 0)
+        die("epoll_ctl stdin");
+
+    server_running = 1;
+    printf("[UI] Server started on port %d.\n", PORT);
+
+    struct epoll_event events[MAX_EVENTS];
+
+    while (server_running && !quit_requested) {
+        int n = epoll_wait(epfd, events, MAX_EVENTS, -1);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            perror("epoll_wait");
+            break;
+        }
+
+        for (int i = 0; i < n; i++) {
+            int fd = events[i].data.fd;
+            uint32_t evs = events[i].events;
+
+            if (fd == listen_fd) {
+                if (evs & EPOLLIN) {
+                    accept_new_connections();
+                }
+            } else if (fd == STDIN_FILENO) {
+                char line[1024];
+                ssize_t r = read(STDIN_FILENO, line, sizeof(line) - 1);
+                if (r > 0) {
+                    line[r] = '\0';
+                    if (strncmp(line, "stop", 4) == 0) {
+                        stop_server();
+                    } else if (strncmp(line, "quit", 4) == 0) {
+                        stop_server();
+                        quit_requested = 1;
+                    } else if (strncmp(line, "add ", 4) == 0) {
+                        char url[256], path[512];
+                        if (sscanf(line + 4, "%255s %511s", url, path) == 2) {
+                            load_file_into_vram(url, path);
+                        } else {
+                            printf("[UI] Usage: add /url_path ./fs_path\n");
+                        }
+                    } else if (strncmp(line, "list", 4) == 0) {
+                        printf("[UI] Files in pinned memory:\n");
+                        for (int j = 0; j < file_count; j++) {
+                            printf("  %s -> %s (%zu bytes)\n",
+                                   files[j].url_path,
+                                   files[j].fs_path,
+                                   files[j].len);
+                        }
+                    } else if (strncmp(line, "webroot ", 8) == 0) {
+                        char path[512];
+                        if (sscanf(line + 8, "%511s", path) == 1) {
+                            load_webroot(path);
+                        } else {
+                            printf("[UI] Usage: webroot ./path/to/webroot\n");
+                        }
+                    } else {
+                        printf("[UI] Commands: add, list, webroot, stop, quit\n");
+                    }
+                }
+            } else {
+                if (evs & EPOLLIN) {
+                    handle_client(fd);
+                } else {
+                    close(fd);
+                }
+            }
+        }
+    }
+
+    stop_server();
+}
+
+static void print_menu(void) {
+    printf("\n=== JakeServer UI (port %d) ===\n", PORT);
+    printf("Commands (when server stopped):\n");
+    printf("  add /url_path ./fs_path   - preload file into pinned GPU buffer\n");
+    printf("  webroot ./webroot_path    - preload all files in webroot\n");
+    printf("  list                      - list preloaded files\n");
+    printf("  start                     - start server\n");
+    printf("  quit                      - exit program\n");
+    printf("\nCommands (when server running):\n");
+    printf("  add /url_path ./fs_path   - add file while running\n");
+    printf("  webroot ./webroot_path    - add all files in webroot\n");
+    printf("  list                      - list files\n");
+    printf("  stop                      - stop server\n");
+    printf("  quit                      - stop & exit\n");
+    printf("================================\n");
+}
+
+int main(void) {
+    signal(SIGPIPE, SIG_IGN);
+
+    cl_init_or_die();
+    print_menu();
+
+    char line[1024];
+    while (!quit_requested) {
+        if (!server_running) {
+            printf("[UI] > ");
+            fflush(stdout);
+            if (!fgets(line, sizeof(line), stdin)) break;
+
+            if (strncmp(line, "start", 5) == 0) {
+                start_server();
+            } else if (strncmp(line, "quit", 4) == 0) {
+                quit_requested = 1;
+            } else if (strncmp(line, "add ", 4) == 0) {
+                char url[256], path[512];
+                if (sscanf(line + 4, "%255s %511s", url, path) == 2) {
+                    load_file_into_vram(url, path);
+                } else {
+                    printf("[UI] Usage: add /url_path ./fs_path\n");
+                }
+            } else if (strncmp(line, "list", 4) == 0) {
+                printf("[UI] Files in pinned memory:\n");
+                for (int j = 0; j < file_count; j++) {
+                    printf("  %s -> %s (%zu bytes)\n",
+                           files[j].url_path,
+                           files[j].fs_path,
+                           files[j].len);
+                }
+            } else if (strncmp(line, "webroot ", 8) == 0) {
+                char path[512];
+                if (sscanf(line + 8, "%511s", path) == 1) {
+                    load_webroot(path);
+                } else {
+                    printf("[UI] Usage: webroot ./path/to/webroot\n");
+                }
+            } else {
+                printf("[UI] Unknown command. Use: start, add, list, webroot, quit\n");
+            }
+        } else {
+            usleep(100000);
+        }
+    }
+
+    stop_server();
+    free_all_files();
+    cl_shutdown();
+    return 0;
+}
