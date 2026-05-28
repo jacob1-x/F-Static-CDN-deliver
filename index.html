@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>F‑STATIC — Faster Than NGINX</title>
+<style>
+    body { font-family: Arial, sans-serif; background:#0d0d0d; color:#fff; padding:40px; }
+    h1 { font-size:48px; margin-bottom:10px; }
+    h2 { margin-top:40px; }
+    .highlight { color:#00eaff; font-weight:bold; }
+    .section { margin-bottom:40px; }
+</style>
+</head>
+<body>
+
+<h1>F‑STATIC ⚡</h1>
+<h2>The Fastest Static File Server Ever Built</h2>
+
+<div class="section">
+<p>NGINX is great. It’s legendary. It’s everywhere.</p>
+<p>But it was designed as a <span class="highlight">general‑purpose web server</span> — reverse proxy, TLS terminator, load balancer, dynamic routing, the whole toolbox.</p>
+<p><strong>F‑STATIC is none of that.</strong></p>
+<p>F‑STATIC is a <span class="highlight">pure static‑file railgun</span> — engineered to do one thing at maximum speed:</p>
+<p><strong>Serve files. As fast as physically possible.</strong></p>
+</div>
+
+<h2>Why F‑STATIC Beats NGINX at Static Files</h2>
+
+<div class="section">
+<h3>1. Zero‑Overhead Architecture</h3>
+<p>NGINX handles every request through layers of modules, filters, and abstractions.</p>
+<p>F‑STATIC uses a <span class="highlight">direct memory → socket</span> pipeline with no middlemen.</p>
+</div>
+
+<div class="section">
+<h3>2. GPU‑Accelerated Pinned Memory</h3>
+<p>Files are loaded into <span class="highlight">GPU‑pinned host memory</span> for ultra‑fast DMA transfers.</p>
+<p>NGINX can’t do that.</p>
+</div>
+
+<div class="section">
+<h3>3. Multi‑Process SO_REUSEPORT Scaling</h3>
+<p>Each CPU core gets its own worker, its own socket, and its own OpenCL context.</p>
+<p>No locks. No contention. No bottlenecks.</p>
+</div>
+
+<div class="section">
+<h3>4. Epoll Edge‑Triggered I/O</h3>
+<p>F‑STATIC uses the fastest I/O model Linux offers.</p>
+<p>NGINX uses a more general, compatibility‑focused event loop.</p>
+</div>
+
+<div class="section">
+<h3>5. VRAM Promotion (Optional)</h3>
+<p>Hot files can be mirrored into <span class="highlight">actual GPU VRAM</span> for near‑zero latency access.</p>
+<p>NGINX has nothing even close to this.</p>
+</div>
+
+<h2>The Result?</h2>
+<p><strong>F‑STATIC pushes 100k–200k requests/sec on mid‑range hardware.</strong></p>
+<p>NGINX simply can’t match that for pure static files.</p>
+
+<h2>Welcome to the Future of Static Delivery.</h2>
+
+</body>
+</html>
