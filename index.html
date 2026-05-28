@@ -2,65 +2,129 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>F‑STATIC — Faster Than NGINX</title>
+<title>F‑STATIC — The Fastest Static File Server</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-    body { font-family: Arial, sans-serif; background:#0d0d0d; color:#fff; padding:40px; }
-    h1 { font-size:48px; margin-bottom:10px; }
-    h2 { margin-top:40px; }
-    .highlight { color:#00eaff; font-weight:bold; }
-    .section { margin-bottom:40px; }
+    body {
+        margin: 0;
+        padding: 0;
+        background: radial-gradient(circle at top, #0a0a0a, #000);
+        font-family: Arial, sans-serif;
+        color: #e8e8e8;
+        text-align: center;
+    }
+
+    header {
+        padding: 80px 20px 40px;
+    }
+
+    h1 {
+        font-size: 64px;
+        margin: 0;
+        background: linear-gradient(90deg, #00eaff, #00ffaa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: 900;
+        letter-spacing: 2px;
+    }
+
+    h2 {
+        font-size: 24px;
+        font-weight: 300;
+        margin-top: 10px;
+        color: #bfbfbf;
+    }
+
+    .section {
+        max-width: 900px;
+        margin: 60px auto;
+        padding: 20px;
+        line-height: 1.7;
+        font-size: 18px;
+    }
+
+    .highlight {
+        color: #00eaff;
+        font-weight: bold;
+    }
+
+    .card {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 25px;
+        margin: 20px auto;
+        max-width: 700px;
+        backdrop-filter: blur(6px);
+        transition: 0.3s;
+    }
+
+    .card:hover {
+        transform: translateY(-4px);
+        border-color: #00eaff;
+    }
+
+    footer {
+        margin-top: 80px;
+        padding: 20px;
+        font-size: 14px;
+        color: #777;
+    }
 </style>
 </head>
 <body>
 
-<h1>F‑STATIC ⚡</h1>
-<h2>The Fastest Static File Server Ever Built</h2>
+<header>
+    <h1>F‑STATIC</h1>
+    <h2>The Fastest Static File Server Ever Built</h2>
+</header>
 
 <div class="section">
-<p>NGINX is great. It’s legendary. It’s everywhere.</p>
-<p>But it was designed as a <span class="highlight">general‑purpose web server</span> — reverse proxy, TLS terminator, load balancer, dynamic routing, the whole toolbox.</p>
-<p><strong>F‑STATIC is none of that.</strong></p>
-<p>F‑STATIC is a <span class="highlight">pure static‑file railgun</span> — engineered to do one thing at maximum speed:</p>
-<p><strong>Serve files. As fast as physically possible.</strong></p>
+    <div class="card">
+        <h3>Why We Beat NGINX</h3>
+        <p>NGINX is a <span class="highlight">general‑purpose web server</span> with layers of modules, filters, and abstractions.</p>
+        <p>F‑STATIC is a <span class="highlight">pure static‑file railgun</span> — engineered for one job:</p>
+        <p><strong>Serve files at maximum physical speed.</strong></p>
+    </div>
+
+    <div class="card">
+        <h3>Zero‑Overhead Architecture</h3>
+        <p>Direct <span class="highlight">memory → socket</span> pipeline.  
+        No modules. No filters. No bloat.</p>
+    </div>
+
+    <div class="card">
+        <h3>GPU‑Pinned Memory</h3>
+        <p>Files are stored in <span class="highlight">GPU‑pinned host memory</span> for ultra‑fast DMA transfers.</p>
+        <p>NGINX can’t do this.</p>
+    </div>
+
+    <div class="card">
+        <h3>SO_REUSEPORT Multi‑Process Scaling</h3>
+        <p>Every CPU core gets its own worker, socket, and OpenCL context.</p>
+        <p>No lock contention. No bottlenecks.</p>
+    </div>
+
+    <div class="card">
+        <h3>Epoll Edge‑Triggered I/O</h3>
+        <p>The fastest I/O model Linux offers — used to its full potential.</p>
+    </div>
+
+    <div class="card">
+        <h3>Optional VRAM Promotion</h3>
+        <p>Hot files can be mirrored into <span class="highlight">actual GPU VRAM</span> for near‑zero latency access.</p>
+    </div>
+
+    <div class="card">
+        <h3>The Result?</h3>
+        <p><strong>F‑STATIC pushes 100k–200k requests/sec on mid‑range hardware.</strong></p>
+        <p>NGINX simply can’t match that for pure static files.</p>
+    </div>
 </div>
 
-<h2>Why F‑STATIC Beats NGINX at Static Files</h2>
-
-<div class="section">
-<h3>1. Zero‑Overhead Architecture</h3>
-<p>NGINX handles every request through layers of modules, filters, and abstractions.</p>
-<p>F‑STATIC uses a <span class="highlight">direct memory → socket</span> pipeline with no middlemen.</p>
-</div>
-
-<div class="section">
-<h3>2. GPU‑Accelerated Pinned Memory</h3>
-<p>Files are loaded into <span class="highlight">GPU‑pinned host memory</span> for ultra‑fast DMA transfers.</p>
-<p>NGINX can’t do that.</p>
-</div>
-
-<div class="section">
-<h3>3. Multi‑Process SO_REUSEPORT Scaling</h3>
-<p>Each CPU core gets its own worker, its own socket, and its own OpenCL context.</p>
-<p>No locks. No contention. No bottlenecks.</p>
-</div>
-
-<div class="section">
-<h3>4. Epoll Edge‑Triggered I/O</h3>
-<p>F‑STATIC uses the fastest I/O model Linux offers.</p>
-<p>NGINX uses a more general, compatibility‑focused event loop.</p>
-</div>
-
-<div class="section">
-<h3>5. VRAM Promotion (Optional)</h3>
-<p>Hot files can be mirrored into <span class="highlight">actual GPU VRAM</span> for near‑zero latency access.</p>
-<p>NGINX has nothing even close to this.</p>
-</div>
-
-<h2>The Result?</h2>
-<p><strong>F‑STATIC pushes 100k–200k requests/sec on mid‑range hardware.</strong></p>
-<p>NGINX simply can’t match that for pure static files.</p>
-
-<h2>Welcome to the Future of Static Delivery.</h2>
+<footer>
+    F‑STATIC CDN Deliver • Open Source • Built for Speed
+</footer>
 
 </body>
 </html>
